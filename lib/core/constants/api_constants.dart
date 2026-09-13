@@ -4,14 +4,17 @@ class ApiConstants {
   ApiConstants._();
 
   // Standard Development Host & Base URLs
-  // 1. Localhost (Used for Desktop, Web, and Physical Android via `adb reverse tcp:5000 tcp:5000`)
-  static const String defaultLocalBaseUrl = 'http://localhost:5000/api';
-
-  // 2. Wi-Fi / LAN IP (Direct access across local Wi-Fi router for physical devices)
+  // 1. Physical Device over Wi-Fi (Development PC LAN IPv4 Address)
   static const String defaultLanBaseUrl = 'http://192.168.1.18:5000/api';
 
-  // 3. Android Emulator Loopback (Only for QEMU/Android Studio virtual devices)
+  // 2. Physical Device over USB with adb reverse (tcp:5000 tcp:5000)
+  static const String usbAdbReverseBaseUrl = 'http://127.0.0.1:5000/api';
+
+  // 3. Android Emulator (Host loopback)
   static const String defaultAndroidEmulatorBaseUrl = 'http://10.0.2.2:5000/api';
+
+  // 4. Localhost (Used for Desktop and Web)
+  static const String defaultLocalBaseUrl = 'http://localhost:5000/api';
 
   // Health Check
   static const String health = '/health';

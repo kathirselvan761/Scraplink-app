@@ -5,7 +5,7 @@ import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
 import '../../repositories/auth_repository.dart';
 import '../../widgets/custom_text_field.dart';
-import '../main_scaffold_screen.dart';
+import '../dashboard/dashboard_screen.dart';
 
 /// Professional Collector Login Screen connecting to existing backend auth
 class LoginScreen extends StatefulWidget {
@@ -24,11 +24,48 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   String? _errorMessage;
 
+  bool _isCheckingConnection = false;
+  bool? _isServerConnected;
+  String? _connectedUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkInitialConnectivity();
+  }
+
   @override
   void dispose() {
     _identifierController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  /// Initial backend connectivity verification and auto-discovery
+  Future<void> _checkInitialConnectivity() async {
+    setState(() {
+      _isCheckingConnection = true;
+    });
+
+    try {
+      final activeUrl = await AppConfig.current.autoDiscoverGateway();
+
+      if (mounted) {
+        setState(() {
+          _isCheckingConnection = false;
+          _isServerConnected = activeUrl != null;
+          _connectedUrl = activeUrl ?? AppConfig.current.baseUrl;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isCheckingConnection = false;
+          _isServerConnected = false;
+          _connectedUrl = AppConfig.current.baseUrl;
+        });
+      }
+    }
   }
 
   Future<void> _handleLogin() async {
@@ -48,11 +85,14 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MainScaffoldScreen()),
+        MaterialPageRoute(builder: (_) => const DashboardScreen()),
       );
     } on ApiException catch (e) {
       setState(() {
         _errorMessage = e.userFriendlyMessage;
+        if (e.isUnreachable || e.isTimeout) {
+          _isServerConnected = false;
+        }
       });
     } catch (e) {
       setState(() {
@@ -83,7 +123,11 @@ class _LoginScreenState extends State<LoginScreen> {
             });
 
             try {
-              final testConfig = AppConfig(baseUrl: url);
+              final testConfig = AppConfig(
+                baseUrl: url,
+                connectTimeout: const Duration(seconds: 4),
+                receiveTimeout: const Duration(seconds: 4),
+              );
               final testClient = ApiClient(config: testConfig);
               final res = await testClient.get(ApiConstants.health);
               setDialogState(() {
@@ -91,7 +135,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 if (res is Map && res['database'] == 'connected') {
                   testResult = '✅ Connected! Backend & MySQL online.';
                 } else {
-                  testResult = '✅ Connected to backend!';
+                  testResult = '✅ Connected to backend server!';
                 }
               });
             } catch (e) {
@@ -124,29 +168,40 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 12),
                   _buildPresetButton(
-                    label: 'Localhost / ADB Reverse (USB)',
-                    url: ApiConstants.defaultLocalBaseUrl,
-                    controller: customController,
-                    onSelect: () => testConnection(ApiConstants.defaultLocalBaseUrl),
-                    setDialogState: setDialogState,
-                  ),
-                  _buildPresetButton(
-                    label: 'Wi-Fi LAN IP (192.168.1.18)',
+                    label: 'Wi-Fi LAN IP (Physical Device)',
+                    subtitle: 'Direct Wi-Fi access: 192.168.1.18:5000',
                     url: ApiConstants.defaultLanBaseUrl,
                     controller: customController,
                     onSelect: () => testConnection(ApiConstants.defaultLanBaseUrl),
                     setDialogState: setDialogState,
                   ),
                   _buildPresetButton(
+                    label: 'USB with adb reverse (127.0.0.1)',
+                    subtitle: 'Requires: adb reverse tcp:5000 tcp:5000',
+                    url: ApiConstants.usbAdbReverseBaseUrl,
+                    controller: customController,
+                    onSelect: () => testConnection(ApiConstants.usbAdbReverseBaseUrl),
+                    setDialogState: setDialogState,
+                  ),
+                  _buildPresetButton(
                     label: 'Android Emulator (10.0.2.2)',
+                    subtitle: 'Android Studio virtual device only',
                     url: ApiConstants.defaultAndroidEmulatorBaseUrl,
                     controller: customController,
                     onSelect: () => testConnection(ApiConstants.defaultAndroidEmulatorBaseUrl),
                     setDialogState: setDialogState,
                   ),
-                  const SizedBox(height: 12),
+                  _buildPresetButton(
+                    label: 'Localhost (Desktop / Web)',
+                    subtitle: 'For Windows/macOS/Web testing',
+                    url: ApiConstants.defaultLocalBaseUrl,
+                    controller: customController,
+                    onSelect: () => testConnection(ApiConstants.defaultLocalBaseUrl),
+                    setDialogState: setDialogState,
+                  ),
+                  const SizedBox(height: 14),
                   const Text(
-                    'Custom API URL:',
+                    'Custom API Base URL:',
                     style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 12, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 6),
@@ -200,7 +255,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   final newUrl = customController.text.trim();
                   if (newUrl.isNotEmpty) {
                     await AppConfig.current.updateBaseUrl(newUrl);
-                    setState(() {});
+                    _checkInitialConnectivity();
                   }
                   if (ctx.mounted) Navigator.of(ctx).pop();
                 },
@@ -208,7 +263,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   backgroundColor: const Color(0xFF10B981),
                   foregroundColor: Colors.white,
                 ),
-                child: const Text('Apply'),
+                child: const Text('Apply & Reconnect'),
               ),
             ],
           );
@@ -219,6 +274,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Widget _buildPresetButton({
     required String label,
+    required String subtitle,
     required String url,
     required TextEditingController controller,
     required VoidCallback onSelect,
@@ -238,7 +294,7 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF10B981).withOpacity(0.15) : const Color(0xFF0F172A),
+            color: isSelected ? const Color(0xFF10B981).withValues(alpha: 0.15) : const Color(0xFF0F172A),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: isSelected ? const Color(0xFF10B981) : const Color(0xFF334155),
@@ -260,8 +316,12 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                     Text(
-                      url,
+                      subtitle,
                       style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
+                    ),
+                    Text(
+                      url,
+                      style: const TextStyle(color: Color(0xFF475569), fontSize: 10, fontFamily: 'monospace'),
                     ),
                   ],
                 ),
@@ -299,12 +359,12 @@ class _LoginScreenState extends State<LoginScreen> {
                         color: const Color(0xFF1E293B),
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: const Color(0xFF10B981).withOpacity(0.4),
+                          color: const Color(0xFF10B981).withValues(alpha: 0.4),
                           width: 2,
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFF10B981).withOpacity(0.2),
+                            color: const Color(0xFF10B981).withValues(alpha: 0.2),
                             blurRadius: 16,
                             offset: const Offset(0, 4),
                           ),
@@ -339,17 +399,100 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 18),
+
+                  // Live Server Gateway Connectivity Banner
+                  InkWell(
+                    onTap: _showServerConfigDialog,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: _isServerConnected == true
+                            ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                            : (_isServerConnected == false
+                                ? const Color(0xFFEF4444).withValues(alpha: 0.12)
+                                : const Color(0xFF1E293B)),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _isServerConnected == true
+                              ? const Color(0xFF10B981).withValues(alpha: 0.4)
+                              : (_isServerConnected == false
+                                  ? const Color(0xFFEF4444).withValues(alpha: 0.4)
+                                  : const Color(0xFF334155)),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          if (_isCheckingConnection) ...[
+                            const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF10B981)),
+                            ),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                'Checking backend gateway...',
+                                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                              ),
+                            ),
+                          ] else if (_isServerConnected == true) ...[
+                            const Icon(Icons.check_circle, size: 16, color: Color(0xFF10B981)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Backend Connected (${_connectedUrl ?? currentBaseUrl})',
+                                style: const TextStyle(
+                                  color: Color(0xFF34D399),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ] else ...[
+                            const Icon(Icons.wifi_off_rounded, size: 16, color: Color(0xFFEF4444)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Gateway Offline ($currentBaseUrl)',
+                                style: const TextStyle(
+                                  color: Color(0xFFFCA5A5),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(width: 6),
+                          const Text(
+                            'Config',
+                            style: TextStyle(
+                              color: Color(0xFF10B981),
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 18),
 
                   // Error Banner
                   if (_errorMessage != null) ...[
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFEF4444).withOpacity(0.12),
+                        color: const Color(0xFFEF4444).withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
-                          color: const Color(0xFFEF4444).withOpacity(0.4),
+                          color: const Color(0xFFEF4444).withValues(alpha: 0.4),
                         ),
                       ),
                       child: Row(
@@ -431,7 +574,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF10B981),
                         foregroundColor: Colors.white,
-                        disabledBackgroundColor: const Color(0xFF10B981).withOpacity(0.5),
+                        disabledBackgroundColor: const Color(0xFF10B981).withValues(alpha: 0.5),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -458,48 +601,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
 
                   const SizedBox(height: 18),
-
-                  // Server Connection Configuration Tile
-                  InkWell(
-                    onTap: _showServerConfigDialog,
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFF334155)),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.dns_outlined, size: 16, color: Color(0xFF10B981)),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Server: $currentBaseUrl',
-                              style: const TextStyle(
-                                color: Color(0xFF94A3B8),
-                                fontSize: 11,
-                                fontFamily: 'monospace',
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const Text(
-                            'Configure',
-                            style: TextStyle(
-                              color: Color(0xFF10B981),
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
 
                   // Demo Credentials Information Card
                   Container(

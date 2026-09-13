@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../repositories/auth_repository.dart';
 import '../auth/login_screen.dart';
-import '../main_scaffold_screen.dart';
+import '../dashboard/dashboard_screen.dart';
 
 /// Initial launch screen with ScrapLink branding that checks for an existing session.
 class SplashScreen extends StatefulWidget {
@@ -30,7 +30,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
     if (hasSession) {
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MainScaffoldScreen()),
+        MaterialPageRoute(builder: (_) => const DashboardScreen()),
       );
     } else {
       Navigator.of(context).pushReplacement(

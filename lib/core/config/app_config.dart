@@ -1,11 +1,17 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/api_constants.dart';
+import '../network/api_client.dart';
 
 /// Environment and runtime configuration for ScrapLink Collector app.
 class AppConfig extends ChangeNotifier {
   static const String _prefKeyBaseUrl = 'scraplink_custom_base_url';
-  static const String _definedBaseUrl = String.fromEnvironment('API_URL');
+
+  // Support both compile-time --dart-define=API_BASE_URL=... and --dart-define=API_URL=...
+  static const String _definedBaseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: String.fromEnvironment('API_URL', defaultValue: ''),
+  );
 
   String _baseUrl;
   final Duration connectTimeout;
@@ -60,22 +66,84 @@ class AppConfig extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final saved = prefs.getString(_prefKeyBaseUrl);
       if (saved != null && saved.isNotEmpty) {
-        _baseUrl = saved;
+        // Sanitize legacy "localhost" saved on physical mobile devices
+        final isPhysicalMobile = !kIsWeb &&
+            (defaultTargetPlatform == TargetPlatform.android ||
+                defaultTargetPlatform == TargetPlatform.iOS);
+
+        if (isPhysicalMobile && saved.contains('localhost')) {
+          _baseUrl = ApiConstants.defaultLanBaseUrl;
+          await prefs.setString(_prefKeyBaseUrl, _baseUrl);
+        } else {
+          _baseUrl = saved;
+        }
         notifyListeners();
       }
     } catch (_) {}
   }
 
   /// Resolves initial default URL:
-  /// 1. Uses `--dart-define=API_URL=...` if passed during compilation.
-  /// 2. Defaults to `http://localhost:5000/api` (works for Desktop/Web and physical Android via `adb reverse tcp:5000 tcp:5000`).
+  /// 1. Uses `--dart-define=API_BASE_URL=...` or `API_URL` if passed during compilation.
+  /// 2. For physical Android/iOS phones, defaults to PC LAN IP (`http://192.168.1.18:5000/api`).
+  /// 3. For Desktop/Web, defaults to `http://localhost:5000/api`.
   static AppConfig _createDefaultConfig() {
     if (_definedBaseUrl.isNotEmpty) {
       return AppConfig(baseUrl: _definedBaseUrl);
     }
 
-    // Default to localhost:5000/api (paired with adb reverse for USB, or LAN IP option)
+    final isPhysicalMobile = !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS);
+
+    if (isPhysicalMobile) {
+      return AppConfig(baseUrl: ApiConstants.defaultLanBaseUrl);
+    }
+
     return AppConfig(baseUrl: ApiConstants.defaultLocalBaseUrl);
+  }
+
+  /// Check health of backend on specified URL or current base URL
+  Future<bool> checkHealth([String? targetUrl]) async {
+    final testUrl = targetUrl ?? baseUrl;
+    try {
+      final client = ApiClient(
+        config: copyWith(
+          baseUrl: testUrl,
+          connectTimeout: const Duration(seconds: 3),
+          receiveTimeout: const Duration(seconds: 3),
+          enableLogging: false,
+        ),
+      );
+      final res = await client.get(ApiConstants.health);
+      if (res is Map && (res['success'] == true || res['database'] != null)) {
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Automatically tests current gateway and falls back to alternate reachable development endpoint
+  Future<String?> autoDiscoverGateway() async {
+    if (await checkHealth()) {
+      return baseUrl;
+    }
+
+    // Candidate development endpoints in priority order
+    final candidates = [
+      ApiConstants.usbAdbReverseBaseUrl, // 127.0.0.1:5000 (USB adb reverse)
+      ApiConstants.defaultLanBaseUrl,    // 192.168.1.18:5000 (Wi-Fi LAN)
+    ];
+
+    for (final candidate in candidates) {
+      if (candidate != baseUrl && await checkHealth(candidate)) {
+        await updateBaseUrl(candidate);
+        return candidate;
+      }
+    }
+
+    return null;
   }
 
   AppConfig copyWith({

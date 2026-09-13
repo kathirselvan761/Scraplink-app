@@ -91,7 +91,7 @@ class ApiException implements Exception {
 
     switch (type) {
       case ApiExceptionType.unreachable:
-        return 'Backend Unreachable ($target).\nMake sure the backend is running and the device can reach the host via USB (adb reverse) or Wi-Fi.';
+        return 'Cannot connect to ScrapLink Backend ($target).\nCheck that the backend is running and the phone is connected to the same network (Wi-Fi) or USB (adb reverse).';
       case ApiExceptionType.timeout:
         return 'Connection Timed Out ($target).\nServer did not respond in time. Verify the IP/port and firewall settings.';
       case ApiExceptionType.unauthorized:
