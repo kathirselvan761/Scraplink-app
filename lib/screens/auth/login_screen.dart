@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
-import '../../core/config/app_config.dart';
-import '../../core/constants/api_constants.dart';
-import '../../core/network/api_client.dart';
-import '../../core/network/api_exception.dart';
-import '../../repositories/auth_repository.dart';
-import '../../widgets/custom_text_field.dart';
-import '../dashboard/dashboard_screen.dart';
+import 'package:provider/provider.dart';
+import '../../config/app_theme.dart';
+import '../../providers/auth_provider.dart';
+import '../../widgets/primary_button.dart';
+import '../../widgets/loading_overlay.dart';
+import '../home/home_shell.dart';
+import 'register_screen.dart';
 
-/// Professional Collector Login Screen connecting to existing backend auth
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -17,629 +16,251 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _identifierController = TextEditingController(text: 'collector@demo.scraplink.local');
-  final _passwordController = TextEditingController(text: 'Collector@123');
-
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
   bool _obscurePassword = true;
-  bool _isLoading = false;
-  String? _errorMessage;
-
-  bool _isCheckingConnection = false;
-  bool? _isServerConnected;
-  String? _connectedUrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _checkInitialConnectivity();
-  }
+  String? _inlineError;
 
   @override
   void dispose() {
-    _identifierController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  /// Initial backend connectivity verification and auto-discovery
-  Future<void> _checkInitialConnectivity() async {
-    setState(() {
-      _isCheckingConnection = true;
-    });
-
-    try {
-      final activeUrl = await AppConfig.current.autoDiscoverGateway();
-
-      if (mounted) {
-        setState(() {
-          _isCheckingConnection = false;
-          _isServerConnected = activeUrl != null;
-          _connectedUrl = activeUrl ?? AppConfig.current.baseUrl;
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _isCheckingConnection = false;
-          _isServerConnected = false;
-          _connectedUrl = AppConfig.current.baseUrl;
-        });
-      }
-    }
-  }
-
   Future<void> _handleLogin() async {
-    if (!_formKey.currentState!.validate()) return;
+    print('LOGIN TAPPED');
+    print('LOGIN BUTTON CLICKED');
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    print('EMAIL: $email, PASSWORD LENGTH: ${password.length}');
 
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+    setState(() => _inlineError = null);
+
+    if (!_formKey.currentState!.validate()) {
+      print('LOGIN FORM VALIDATION FAILED');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid email and password'),
+          backgroundColor: AppTheme.errorRed,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
 
     try {
-      await AuthRepository.instance.login(
-        identifier: _identifierController.text.trim(),
-        password: _passwordController.text,
-      );
+      print('CALLING AUTH PROVIDER LOGIN...');
+      final authProvider = context.read<AuthProvider>();
+      final success = await authProvider.login(email, password);
+      print('LOGIN COMPLETED. SUCCESS: $success');
 
       if (!mounted) return;
 
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const DashboardScreen()),
-      );
-    } on ApiException catch (e) {
-      setState(() {
-        _errorMessage = e.userFriendlyMessage;
-        if (e.isUnreachable || e.isTimeout) {
-          _isServerConnected = false;
-        }
-      });
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Login failed: Unexpected error ($e)';
-      });
-    } finally {
-      if (mounted) {
+      if (success) {
+        print('NAVIGATING TO HOMESHELL');
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HomeShell()),
+        );
+      } else {
+        final error = authProvider.errorMessage ?? 'Invalid email or password';
+        print('LOGIN FAILED: $error');
         setState(() {
-          _isLoading = false;
+          _inlineError = error;
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(error),
+            backgroundColor: AppTheme.errorRed,
+            duration: const Duration(seconds: 4),
+          ),
+        );
       }
-    }
-  }
-
-  void _showServerConfigDialog() {
-    final customController = TextEditingController(text: AppConfig.current.baseUrl);
-    String testResult = '';
-    bool isTesting = false;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          Future<void> testConnection(String url) async {
-            setDialogState(() {
-              isTesting = true;
-              testResult = 'Testing connection...';
-            });
-
-            try {
-              final testConfig = AppConfig(
-                baseUrl: url,
-                connectTimeout: const Duration(seconds: 4),
-                receiveTimeout: const Duration(seconds: 4),
-              );
-              final testClient = ApiClient(config: testConfig);
-              final res = await testClient.get(ApiConstants.health);
-              setDialogState(() {
-                isTesting = false;
-                if (res is Map && res['database'] == 'connected') {
-                  testResult = '✅ Connected! Backend & MySQL online.';
-                } else {
-                  testResult = '✅ Connected to backend server!';
-                }
-              });
-            } catch (e) {
-              setDialogState(() {
-                isTesting = false;
-                if (e is ApiException) {
-                  testResult = '❌ ${e.message}';
-                } else {
-                  testResult = '❌ Failed: $e';
-                }
-              });
-            }
-          }
-
-          return AlertDialog(
-            backgroundColor: const Color(0xFF1E293B),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Text(
-              'Backend Server Gateway',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
-            ),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Select development target or enter custom URL:',
-                    style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildPresetButton(
-                    label: 'Wi-Fi LAN IP (Physical Device)',
-                    subtitle: 'Direct Wi-Fi access: 192.168.1.18:5000',
-                    url: ApiConstants.defaultLanBaseUrl,
-                    controller: customController,
-                    onSelect: () => testConnection(ApiConstants.defaultLanBaseUrl),
-                    setDialogState: setDialogState,
-                  ),
-                  _buildPresetButton(
-                    label: 'USB with adb reverse (127.0.0.1)',
-                    subtitle: 'Requires: adb reverse tcp:5000 tcp:5000',
-                    url: ApiConstants.usbAdbReverseBaseUrl,
-                    controller: customController,
-                    onSelect: () => testConnection(ApiConstants.usbAdbReverseBaseUrl),
-                    setDialogState: setDialogState,
-                  ),
-                  _buildPresetButton(
-                    label: 'Android Emulator (10.0.2.2)',
-                    subtitle: 'Android Studio virtual device only',
-                    url: ApiConstants.defaultAndroidEmulatorBaseUrl,
-                    controller: customController,
-                    onSelect: () => testConnection(ApiConstants.defaultAndroidEmulatorBaseUrl),
-                    setDialogState: setDialogState,
-                  ),
-                  _buildPresetButton(
-                    label: 'Localhost (Desktop / Web)',
-                    subtitle: 'For Windows/macOS/Web testing',
-                    url: ApiConstants.defaultLocalBaseUrl,
-                    controller: customController,
-                    onSelect: () => testConnection(ApiConstants.defaultLocalBaseUrl),
-                    setDialogState: setDialogState,
-                  ),
-                  const SizedBox(height: 14),
-                  const Text(
-                    'Custom API Base URL:',
-                    style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 12, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 6),
-                  TextField(
-                    controller: customController,
-                    style: const TextStyle(color: Colors.white, fontSize: 13),
-                    decoration: InputDecoration(
-                      filled: true,
-                      fillColor: const Color(0xFF0F172A),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: Color(0xFF334155)),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  if (testResult.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8.0),
-                      child: Text(
-                        testResult,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: testResult.startsWith('✅') ? const Color(0xFF34D399) : const Color(0xFFF87171),
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  OutlinedButton.icon(
-                    onPressed: isTesting ? null : () => testConnection(customController.text.trim()),
-                    icon: isTesting
-                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Icon(Icons.bolt, size: 16),
-                    label: const Text('Test Connection'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF10B981),
-                      side: const BorderSide(color: Color(0xFF10B981)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('Cancel', style: TextStyle(color: Color(0xFF94A3B8))),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  final newUrl = customController.text.trim();
-                  if (newUrl.isNotEmpty) {
-                    await AppConfig.current.updateBaseUrl(newUrl);
-                    _checkInitialConnectivity();
-                  }
-                  if (ctx.mounted) Navigator.of(ctx).pop();
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981),
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('Apply & Reconnect'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildPresetButton({
-    required String label,
-    required String subtitle,
-    required String url,
-    required TextEditingController controller,
-    required VoidCallback onSelect,
-    required void Function(void Function()) setDialogState,
-  }) {
-    final isSelected = controller.text.trim() == url;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
-      child: InkWell(
-        onTap: () {
-          setDialogState(() {
-            controller.text = url;
-          });
-          onSelect();
-        },
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF10B981).withValues(alpha: 0.15) : const Color(0xFF0F172A),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: isSelected ? const Color(0xFF10B981) : const Color(0xFF334155),
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      label,
-                      style: TextStyle(
-                        color: isSelected ? Colors.white : const Color(0xFFCBD5E1),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
-                    ),
-                    Text(
-                      url,
-                      style: const TextStyle(color: Color(0xFF475569), fontSize: 10, fontFamily: 'monospace'),
-                    ),
-                  ],
-                ),
-              ),
-              if (isSelected)
-                const Icon(Icons.check_circle, color: Color(0xFF10B981), size: 16),
-            ],
-          ),
+    } catch (e, stack) {
+      print('LOGIN EXCEPTION: $e\n$stack');
+      if (!mounted) return;
+      final error = 'An unexpected error occurred: $e';
+      setState(() {
+        _inlineError = error;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error),
+          backgroundColor: AppTheme.errorRed,
+          duration: const Duration(seconds: 4),
         ),
-      ),
-    );
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final currentBaseUrl = AppConfig.current.baseUrl;
+    final isLoading = context.watch<AuthProvider>().isLoading;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 24.0),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Branding Logo
-                  Center(
-                    child: Container(
-                      padding: const EdgeInsets.all(18),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: const Color(0xFF10B981).withValues(alpha: 0.4),
-                          width: 2,
+      body: LoadingOverlay(
+        isLoading: isLoading,
+        message: 'Logging in...',
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Brand icon & title
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: const BoxDecoration(
+                          color: Color(0x1A2E7D32),
+                          shape: BoxShape.circle,
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF10B981).withValues(alpha: 0.2),
-                            blurRadius: 16,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.recycling_rounded,
-                        size: 48,
-                        color: Color(0xFF10B981),
+                        child: const Icon(
+                          Icons.recycling_rounded,
+                          size: 56,
+                          color: AppTheme.primaryGreen,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 18),
-                  // Title
-                  const Text(
-                    'ScrapLink',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Welcome Back',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Collector Login',
-                    style: TextStyle(
-                      color: Color(0xFF94A3B8),
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Log in to your ScrapLink Collector account',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: AppTheme.secondaryGrey,
+                      ),
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 18),
+                    const SizedBox(height: 32),
 
-                  // Live Server Gateway Connectivity Banner
-                  InkWell(
-                    onTap: _showServerConfigDialog,
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: _isServerConnected == true
-                            ? const Color(0xFF10B981).withValues(alpha: 0.12)
-                            : (_isServerConnected == false
-                                ? const Color(0xFFEF4444).withValues(alpha: 0.12)
-                                : const Color(0xFF1E293B)),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: _isServerConnected == true
-                              ? const Color(0xFF10B981).withValues(alpha: 0.4)
-                              : (_isServerConnected == false
-                                  ? const Color(0xFFEF4444).withValues(alpha: 0.4)
-                                  : const Color(0xFF334155)),
+                    // Inline error box
+                    if (_inlineError != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFEBEE),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFFFCDD2)),
                         ),
-                      ),
-                      child: Row(
-                        children: [
-                          if (_isCheckingConnection) ...[
-                            const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF10B981)),
-                            ),
-                            const SizedBox(width: 8),
-                            const Expanded(
-                              child: Text(
-                                'Checking backend gateway...',
-                                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
-                              ),
-                            ),
-                          ] else if (_isServerConnected == true) ...[
-                            const Icon(Icons.check_circle, size: 16, color: Color(0xFF10B981)),
-                            const SizedBox(width: 8),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 20),
+                            const SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                'Backend Connected (${_connectedUrl ?? currentBaseUrl})',
-                                style: const TextStyle(
-                                  color: Color(0xFF34D399),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ] else ...[
-                            const Icon(Icons.wifi_off_rounded, size: 16, color: Color(0xFFEF4444)),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Gateway Offline ($currentBaseUrl)',
-                                style: const TextStyle(
-                                  color: Color(0xFFFCA5A5),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                                _inlineError!,
+                                style: const TextStyle(color: AppTheme.errorRed, fontSize: 13),
                               ),
                             ),
                           ],
-                          const SizedBox(width: 6),
-                          const Text(
-                            'Config',
-                            style: TextStyle(
-                              color: Color(0xFF10B981),
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 18),
-
-                  // Error Banner
-                  if (_errorMessage != null) ...[
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEF4444).withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: const Color(0xFFEF4444).withValues(alpha: 0.4),
                         ),
                       ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Icon(
-                            Icons.error_outline,
-                            color: Color(0xFFEF4444),
-                            size: 20,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              _errorMessage!,
-                              style: const TextStyle(
-                                color: Color(0xFFFCA5A5),
-                                fontSize: 13,
-                                height: 1.3,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // Email Field
+                    const Text(
+                      'Email Address',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                     ),
-                    const SizedBox(height: 18),
-                  ],
-
-                  // Email / Collector ID Field
-                  CustomTextField(
-                    controller: _identifierController,
-                    label: 'Collector Email / ID',
-                    hintText: 'collector@demo.scraplink.local',
-                    prefixIcon: Icons.badge_outlined,
-                    keyboardType: TextInputType.emailAddress,
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Please enter your Collector Email or ID';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Password Field
-                  CustomTextField(
-                    controller: _passwordController,
-                    label: 'Password',
-                    hintText: '••••••••',
-                    prefixIcon: Icons.lock_outline,
-                    obscureText: _obscurePassword,
-                    textInputAction: TextInputAction.done,
-                    onFieldSubmitted: (_) => _handleLogin(),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                        color: const Color(0xFF94A3B8),
-                        size: 20,
+                    const SizedBox(height: 6),
+                    TextFormField(
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        hintText: 'collector@example.com',
+                        prefixIcon: Icon(Icons.email_outlined),
                       ),
-                      onPressed: () {
-                        setState(() {
-                          _obscurePassword = !_obscurePassword;
-                        });
+                      validator: (val) {
+                        if (val == null || val.trim().isEmpty) {
+                          return 'Please enter your email';
+                        }
+                        if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(val.trim())) {
+                          return 'Please enter a valid email address';
+                        }
+                        return null;
                       },
                     ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter your password';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 24),
+                    const SizedBox(height: 18),
 
-                  // Login Button
-                  SizedBox(
-                    height: 50,
-                    child: ElevatedButton(
-                      onPressed: _isLoading ? null : _handleLogin,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF10B981),
-                        foregroundColor: Colors.white,
-                        disabledBackgroundColor: const Color(0xFF10B981).withValues(alpha: 0.5),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                    // Password Field
+                    const Text(
+                      'Password',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 6),
+                    TextFormField(
+                      controller: _passwordController,
+                      obscureText: _obscurePassword,
+                      textInputAction: TextInputAction.done,
+                      onFieldSubmitted: (_) => _handleLogin(),
+                      decoration: InputDecoration(
+                        hintText: '••••••••',
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                          ),
+                          onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                         ),
-                        elevation: 2,
                       ),
-                      child: _isLoading
-                          ? const SizedBox(
-                              height: 22,
-                              width: 22,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Text(
-                              'Sign In to Dashboard',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
+                      validator: (val) {
+                        if (val == null || val.isEmpty) {
+                          return 'Please enter your password';
+                        }
+                        return null;
+                      },
                     ),
-                  ),
+                    const SizedBox(height: 28),
 
-                  const SizedBox(height: 18),
-
-                  // Demo Credentials Information Card
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1E293B),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFF334155)),
+                    // Login Button
+                    PrimaryButton(
+                      text: 'Log In',
+                      onPressed: _handleLogin,
+                      isLoading: isLoading,
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    const SizedBox(height: 24),
+
+                    // Register link
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Row(
-                          children: const [
-                            Icon(Icons.info_outline, size: 15, color: Color(0xFF10B981)),
-                            SizedBox(width: 6),
-                            Text(
-                              'Backend Collector Credentials',
-                              style: TextStyle(
-                                color: Color(0xFFE2E8F0),
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
                         const Text(
-                          'Email: collector@demo.scraplink.local\nPassword: Collector@123',
-                          style: TextStyle(
-                            color: Color(0xFF94A3B8),
-                            fontSize: 11,
-                            fontFamily: 'monospace',
+                          'New collector?',
+                          style: TextStyle(color: AppTheme.secondaryGrey),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const RegisterScreen()),
+                            );
+                          },
+                          child: const Text(
+                            'Register',
+                            style: TextStyle(
+                              color: AppTheme.primaryGreen,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ],
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

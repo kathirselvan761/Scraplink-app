@@ -1,73 +1,90 @@
-import '../core/constants/api_constants.dart';
-import '../core/network/api_client.dart';
-import '../core/network/api_exception.dart';
-import '../models/collector.dart';
+import '../config/api_config.dart';
+import '../models/user_model.dart';
+import 'api_service.dart';
+import 'storage_service.dart';
 
-/// Service for authenticating collectors using the existing ScrapLink Backend Auth API.
 class AuthService {
-  final ApiClient _client;
+  final ApiService _api = ApiService();
 
-  AuthService({ApiClient? client}) : _client = client ?? ApiClient();
-
-  /// Authenticate against existing backend endpoint POST /api/auth/login
-  Future<({String token, Collector collector})> login({
-    required String identifier,
+  Future<dynamic> register({
+    required String name,
+    required String email,
+    required String phone,
     required String password,
   }) async {
-    final cleanIdentifier = identifier.trim();
+    final body = {
+      'name': name,
+      'email': email,
+      'phone': phone,
+      'password': password,
+      'role': 'collector',
+    };
 
-    final response = await _client.post(
-      ApiConstants.authLogin,
+    return await _api.post(ApiConfig.register, body: body);
+  }
+
+  Future<UserModel> login(String email, String password) async {
+    final url = '${ApiConfig.baseUrl}${ApiConfig.login}';
+    print('AUTH SERVICE CALL: $url');
+    print('AUTH SERVICE: calling /auth/login');
+
+    final response = await _api.post(
+      ApiConfig.login,
       body: {
-        'email': cleanIdentifier,
+        'email': email,
         'password': password,
       },
     );
 
-    if (response is Map<String, dynamic>) {
-      final token = response['token']?.toString();
-      final userData = response['user'] ?? response['data'];
+    print('AUTH SERVICE: parsed response: $response');
 
-      if (token == null || token.isEmpty) {
-        throw const ApiException(
-          message: 'Invalid response from server: Authentication token missing.',
-        );
-      }
-
-      if (userData is! Map<String, dynamic>) {
-        throw const ApiException(
-          message: 'Invalid response from server: User profile data missing.',
-        );
-      }
-
-      final collector = Collector.fromJson(userData);
-
-      // Verify collector role
-      final role = (collector.role).toLowerCase();
-      if (role != 'collector') {
-        throw ApiException.fromHttp(
-          statusCode: 403,
-          message: 'Access Restricted: This application is only for verified collectors. Your role is: $role',
-        );
-      }
-
-      return (token: token, collector: collector);
+    // Support responses in format { token, user } or { success: true, data: { token, user } }
+    Map<String, dynamic> data = response is Map<String, dynamic> ? response : {};
+    if (data.containsKey('data') && data['data'] is Map<String, dynamic>) {
+      data = data['data'] as Map<String, dynamic>;
     }
 
-    throw const FormatException('Unexpected response format from auth server');
+    final token = data['token'] ?? (response is Map ? response['token'] : null);
+    dynamic userMap = data['user'] ?? data['collector'] ?? (response is Map ? (response['user'] ?? response['collector']) : null);
+
+    if (userMap == null && data.containsKey('email') && data.containsKey('role')) {
+      userMap = data;
+    }
+
+    if (userMap == null || userMap is! Map<String, dynamic>) {
+      throw ApiException('Invalid response received from server: missing user data.');
+    }
+
+    final role = (userMap['role'] ?? '').toString().toLowerCase();
+    if (role != 'collector') {
+      throw ApiException('This app is for collectors only. Please use the web portal.');
+    }
+
+    if (token != null) {
+      await StorageService.saveToken(token.toString());
+      print('AUTH SERVICE: token saved successfully');
+    }
+    await StorageService.saveUser(userMap);
+    print('AUTH SERVICE: user saved successfully');
+
+    return UserModel.fromJson(userMap);
   }
 
-  /// Fetch current user profile via GET /api/auth/me
-  Future<Collector> getProfile() async {
-    final response = await _client.get(ApiConstants.authMe);
-
-    if (response is Map<String, dynamic>) {
-      final userData = response['user'] ?? response['data'] ?? response;
-      if (userData is Map<String, dynamic>) {
-        return Collector.fromJson(userData);
-      }
+  Future<UserModel?> getMe() async {
+    final response = await _api.get(ApiConfig.me);
+    Map<String, dynamic> data = response is Map<String, dynamic> ? response : {};
+    if (data.containsKey('data') && data['data'] is Map<String, dynamic>) {
+      data = data['data'] as Map<String, dynamic>;
     }
+    final userMap = data['user'] ?? data;
+    if (userMap is Map<String, dynamic>) {
+      await StorageService.saveUser(userMap);
+      return UserModel.fromJson(userMap);
+    }
+    return null;
+  }
 
-    throw const FormatException('Unexpected response format for user profile');
+  Future<void> logout() async {
+    await StorageService.clear();
   }
 }
