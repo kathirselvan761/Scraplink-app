@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import '../../config/app_theme.dart';
 import '../../models/material_price_model.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/lot_provider.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/location_service.dart';
@@ -86,9 +87,12 @@ class _CreateLotScreenState extends State<CreateLotScreen> {
       }
 
       final pos = await _locationService.getCurrentPosition();
+      final double? lat = pos['latitude'];
+      final double? lng = pos['longitude'];
+
       setState(() {
-        _latitude = pos['latitude'];
-        _longitude = pos['longitude'];
+        _latitude = lat;
+        _longitude = lng;
         _isLoadingLocation = false;
       });
     } catch (e) {
@@ -268,14 +272,38 @@ class _CreateLotScreenState extends State<CreateLotScreen> {
       return;
     }
 
-    final weight = double.parse(_weightController.text.trim());
+    print('SUBMIT: material=${_selectedMaterial?.material}');
+    print('SUBMIT: weight text=${_weightController.text}');
+    final weight = double.tryParse(_weightController.text.trim());
+    print('SUBMIT: parsed weight=$weight (type: ${weight.runtimeType})');
+    print('SUBMIT: lat=$_latitude (type: ${_latitude.runtimeType})');
+    print('SUBMIT: lng=$_longitude (type: ${_longitude.runtimeType})');
+    print('SUBMIT: imageFile=${_selectedImage?.path}');
+
+    if (weight == null || weight <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid weight greater than 0'),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+      return;
+    }
+
+    final lat = _latitude!.toDouble();
+    final lng = _longitude!.toDouble();
+    final authProvider = context.read<AuthProvider>();
+    final userId = authProvider.currentUser?.id;
+    print('SUBMIT: collector_id=$userId');
+
     final lotProvider = context.read<LotProvider>();
 
     final createdLot = await lotProvider.createLot(
       material: _selectedMaterial!.material,
       weight: weight,
-      lat: _latitude,
-      lng: _longitude,
+      collectorId: userId,
+      lat: lat,
+      lng: lng,
       notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
       imageFile: _selectedImage,
     );

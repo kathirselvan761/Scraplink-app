@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../config/app_theme.dart';
 import '../../models/scrap_lot_model.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/lot_provider.dart';
 import '../../widgets/lot_card.dart';
 import '../../widgets/empty_state.dart';
@@ -32,7 +33,8 @@ class _MyLotsTabState extends State<MyLotsTab> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<LotProvider>().loadMyLots();
+      final user = context.read<AuthProvider>().currentUser;
+      context.read<LotProvider>().loadMyLots(user?.id);
     });
   }
 
@@ -108,7 +110,9 @@ class _MyLotsTabState extends State<MyLotsTab> {
           // Lots List with Pull to Refresh
           Expanded(
             child: RefreshIndicator(
-              onRefresh: () => context.read<LotProvider>().loadMyLots(),
+              onRefresh: () => context.read<LotProvider>().loadMyLots(
+                context.read<AuthProvider>().currentUser?.id,
+              ),
               color: AppTheme.primaryGreen,
               child: isLoading && allLots.isEmpty
                   ? ListView(

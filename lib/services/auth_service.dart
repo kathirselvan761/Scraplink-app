@@ -64,10 +64,14 @@ class AuthService {
       await StorageService.saveToken(token.toString());
       print('AUTH SERVICE: token saved successfully');
     }
-    await StorageService.saveUser(userMap);
-    print('AUTH SERVICE: user saved successfully');
 
-    return UserModel.fromJson(userMap);
+    final user = UserModel.fromJson(userMap);
+    print('AUTH SERVICE: user parsed with id=${user.id} (type: ${user.id.runtimeType})');
+
+    await StorageService.saveUser(user.toJson());
+    print('AUTH SERVICE: user saved to storage with id=${user.id}');
+
+    return user;
   }
 
   Future<UserModel?> getMe() async {
@@ -78,8 +82,9 @@ class AuthService {
     }
     final userMap = data['user'] ?? data;
     if (userMap is Map<String, dynamic>) {
-      await StorageService.saveUser(userMap);
-      return UserModel.fromJson(userMap);
+      final user = UserModel.fromJson(userMap);
+      await StorageService.saveUser(user.toJson());
+      return user;
     }
     return null;
   }

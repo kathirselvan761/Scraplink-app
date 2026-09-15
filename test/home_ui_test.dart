@@ -60,7 +60,7 @@ void main() {
 
     testWidgets('HomeTab displays greeting, 4 stat cards, and FAB', (tester) async {
       final auth = AuthProvider();
-      auth.setUser(UserModel(name: 'Poo Mathan', email: 'collector@scraplink.com', role: 'collector'));
+      auth.setUser(UserModel(id: 1, name: 'Poo Mathan', email: 'collector@scraplink.com', role: 'collector'));
 
       final lot = LotProvider();
       lot.setLots([

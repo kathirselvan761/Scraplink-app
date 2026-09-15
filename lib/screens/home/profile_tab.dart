@@ -47,7 +47,13 @@ class _ProfileTabState extends State<ProfileTab> {
         if (item is Map<String, dynamic>) {
           final st = (item['payment_status'] ?? item['status'] ?? '').toString().toUpperCase();
           if (st == 'PAID' || st == 'COMPLETED') {
-            final amt = (item['total_amount'] ?? item['amount'] as num?)?.toDouble() ?? 0.0;
+            final rawAmt = item['total_amount'] ?? item['amount'];
+            double amt = 0.0;
+            if (rawAmt is num) {
+              amt = rawAmt.toDouble();
+            } else if (rawAmt is String) {
+              amt = double.tryParse(rawAmt) ?? 0.0;
+            }
             sum += amt;
           }
         }

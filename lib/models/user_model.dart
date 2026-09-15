@@ -1,7 +1,7 @@
 import 'package:intl/intl.dart';
 
 class UserModel {
-  final int? id;
+  final int id;
   final String name;
   final String email;
   final String? phone;
@@ -9,7 +9,7 @@ class UserModel {
   final DateTime? createdAt;
 
   UserModel({
-    this.id,
+    required this.id,
     required this.name,
     required this.email,
     this.phone,
@@ -29,8 +29,18 @@ class UserModel {
       }
     }
 
+    final rawId = json['id'] ?? json['userId'] ?? json['user_id'];
+    int parsedId = 0;
+    if (rawId is int) {
+      parsedId = rawId;
+    } else if (rawId is num) {
+      parsedId = rawId.toInt();
+    } else if (rawId is String) {
+      parsedId = int.tryParse(rawId) ?? 0;
+    }
+
     return UserModel(
-      id: json['id'] is int ? json['id'] as int : int.tryParse(json['id']?.toString() ?? ''),
+      id: parsedId,
       name: json['name']?.toString() ?? '',
       email: json['email']?.toString() ?? '',
       phone: json['phone']?.toString(),

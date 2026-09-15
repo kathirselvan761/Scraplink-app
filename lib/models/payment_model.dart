@@ -13,6 +13,13 @@ DateTime? _parseDate(dynamic dateValue) {
   }
 }
 
+double? _toDoubleNullable(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v.toDouble();
+  if (v is String) return double.tryParse(v);
+  return null;
+}
+
 class PaymentModel {
   final int? id;
   final String? scrapId;
@@ -41,9 +48,9 @@ class PaymentModel {
       id: json['id'] is int ? json['id'] as int : int.tryParse(json['id']?.toString() ?? ''),
       scrapId: json['scrap_id']?.toString() ?? json['scrapId']?.toString() ?? json['lot_id']?.toString(),
       recyclerName: json['recycler_name']?.toString() ?? json['recyclerName']?.toString(),
-      finalWeight: (json['final_weight'] as num?)?.toDouble() ?? (json['weight'] as num?)?.toDouble(),
-      pricePerKg: (json['price_per_kg'] as num?)?.toDouble() ?? (json['price'] as num?)?.toDouble(),
-      totalAmount: (json['total_amount'] as num?)?.toDouble() ?? (json['amount'] as num?)?.toDouble(),
+      finalWeight: _toDoubleNullable(json['final_weight'] ?? json['weight']),
+      pricePerKg: _toDoubleNullable(json['price_per_kg'] ?? json['price']),
+      totalAmount: _toDoubleNullable(json['total_amount'] ?? json['amount']),
       paymentStatus: json['payment_status']?.toString() ?? json['status']?.toString(),
       transactionId: json['transaction_id']?.toString() ?? json['transactionId']?.toString(),
       paymentDate: _parseDate(json['payment_date'] ?? json['paymentDate'] ?? json['created_at']),

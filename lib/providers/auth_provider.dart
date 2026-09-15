@@ -50,6 +50,7 @@ class AuthProvider with ChangeNotifier {
       final userMap = await StorageService.getUser();
       if (userMap != null) {
         _currentUser = UserModel.fromJson(userMap);
+        print('AUTH RESTORED USER: ${_currentUser?.email} (id: ${_currentUser?.id})');
       }
 
       // Refresh user profile from backend
@@ -57,6 +58,7 @@ class AuthProvider with ChangeNotifier {
         final refreshedUser = await _authService.getMe();
         if (refreshedUser != null) {
           _currentUser = refreshedUser;
+          print('AUTH REFRESHED USER: ${_currentUser?.email} (id: ${_currentUser?.id})');
         }
       } catch (_) {
         // If offline, keep cached user
@@ -81,7 +83,7 @@ class AuthProvider with ChangeNotifier {
       final user = await _authService.login(email.trim(), password);
       _currentUser = user;
       _token = await StorageService.getToken();
-      print('AUTH PROVIDER: user logged in: ${user.email}');
+      print('AUTH PROVIDER: user logged in: ${user.email} (id: ${user.id})');
       notifyListeners();
       return true;
     } on ApiException catch (e) {

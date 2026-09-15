@@ -47,6 +47,28 @@ class StatusHistoryItem {
   }
 }
 
+double _toDouble(dynamic v, [double defaultValue = 0.0]) {
+  if (v == null) return defaultValue;
+  if (v is num) return v.toDouble();
+  if (v is String) return double.tryParse(v) ?? defaultValue;
+  return defaultValue;
+}
+
+double? _toDoubleNullable(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v.toDouble();
+  if (v is String) return double.tryParse(v);
+  return null;
+}
+
+int? _toIntNullable(dynamic v) {
+  if (v == null) return null;
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  if (v is String) return int.tryParse(v);
+  return null;
+}
+
 class ScrapLotModel {
   final String id;
   final int? collectorId;
@@ -98,22 +120,16 @@ class ScrapLotModel {
 
     return ScrapLotModel(
       id: idVal?.toString() ?? '',
-      collectorId: json['collector_id'] is int
-          ? json['collector_id'] as int
-          : int.tryParse(json['collector_id']?.toString() ?? ''),
+      collectorId: _toIntNullable(json['collector_id'] ?? json['collectorId']),
       material: json['material']?.toString() ?? json['material_type']?.toString() ?? '',
-      estimatedWeight: (json['estimated_weight'] as num?)?.toDouble() ??
-          (json['weight'] as num?)?.toDouble() ??
-          0.0,
-      finalWeight: (json['final_weight'] as num?)?.toDouble(),
+      estimatedWeight: _toDouble(json['estimated_weight'] ?? json['weight'] ?? json['estimatedWeight']),
+      finalWeight: _toDoubleNullable(json['final_weight'] ?? json['finalWeight']),
       status: json['status']?.toString() ?? 'pending',
-      latitude: (json['latitude'] as num?)?.toDouble(),
-      longitude: (json['longitude'] as num?)?.toDouble(),
+      latitude: _toDoubleNullable(json['latitude'] ?? json['lat']),
+      longitude: _toDoubleNullable(json['longitude'] ?? json['lng']),
       imageUrl: json['image_url']?.toString() ?? json['imageUrl']?.toString(),
       notes: json['notes']?.toString(),
-      recyclerId: json['recycler_id'] is int
-          ? json['recycler_id'] as int
-          : int.tryParse(json['recycler_id']?.toString() ?? ''),
+      recyclerId: _toIntNullable(json['recycler_id'] ?? json['recyclerId']),
       recyclerName: json['recycler_name']?.toString() ?? json['recyclerName']?.toString(),
       qrToken: json['qr_token']?.toString() ?? json['qrToken']?.toString(),
       createdAt: _parseDate(json['created_at'] ?? json['createdAt']),

@@ -74,17 +74,27 @@ class LotProvider with ChangeNotifier {
       if (cid == null) {
         final user = await StorageService.getUser();
         if (user != null && user['id'] != null) {
-          cid = user['id'] is int ? user['id'] : int.tryParse(user['id'].toString());
+          final rawId = user['id'];
+          if (rawId is int) {
+            cid = rawId;
+          } else if (rawId is num) {
+            cid = rawId.toInt();
+          } else if (rawId is String) {
+            cid = int.tryParse(rawId);
+          }
         }
       }
 
+      print('LOAD LOTS: collector_id=$cid');
       final endpoint = cid != null ? '${ApiConfig.lots}?collector_id=$cid' : ApiConfig.lots;
+      print('LOAD LOTS: endpoint=$endpoint');
       final response = await _api.get(endpoint);
       final list = _extractList(response, 'lots');
       _myLots = list
           .whereType<Map<String, dynamic>>()
           .map((item) => ScrapLotModel.fromJson(item))
           .toList();
+      print('LOAD LOTS: retrieved ${_myLots.length} lots for collector_id=$cid');
       _setLoading(false);
     } on ApiException catch (e) {
       _setError(e.message);
@@ -123,11 +133,34 @@ class LotProvider with ChangeNotifier {
   Future<ScrapLotModel?> createLot({
     required String material,
     required double weight,
+    int? collectorId,
     double? lat,
     double? lng,
+    double? latitude,
+    double? longitude,
     String? notes,
     File? imageFile,
   }) async {
+    final latVal = latitude ?? lat;
+    final lngVal = longitude ?? lng;
+
+    int? userId = collectorId;
+    if (userId == null) {
+      final user = await StorageService.getUser();
+      if (user != null && user['id'] != null) {
+        final rawId = user['id'];
+        if (rawId is int) {
+          userId = rawId;
+        } else if (rawId is num) {
+          userId = rawId.toInt();
+        } else if (rawId is String) {
+          userId = int.tryParse(rawId);
+        }
+      }
+    }
+
+    print('CREATE LOT: collector_id=$userId');
+    print('PROVIDER: creating lot with weight=$weight (${weight.runtimeType})');
     _setLoading(true);
     _setError(null);
     try {
@@ -138,8 +171,13 @@ class LotProvider with ChangeNotifier {
         'estimated_weight': weight.toString(),
       };
 
-      if (lat != null) fields['latitude'] = lat.toString();
-      if (lng != null) fields['longitude'] = lng.toString();
+      if (userId != null) {
+        fields['collector_id'] = userId.toString();
+        fields['collectorId'] = userId.toString();
+      }
+
+      if (latVal != null) fields['latitude'] = latVal.toString();
+      if (lngVal != null) fields['longitude'] = lngVal.toString();
       if (notes != null && notes.isNotEmpty) fields['notes'] = notes;
 
       List<http.MultipartFile>? files;
@@ -155,6 +193,8 @@ class LotProvider with ChangeNotifier {
         files: files,
       );
 
+      print('PROVIDER: response=$response');
+
       Map<String, dynamic> data = response is Map<String, dynamic> ? response : {};
       if (data.containsKey('data') && data['data'] is Map<String, dynamic>) {
         data = data['data'] as Map<String, dynamic>;
@@ -164,19 +204,18 @@ class LotProvider with ChangeNotifier {
 
       final createdLot = ScrapLotModel.fromJson(data);
 
-      // Reload lot list after creation
-      await loadMyLots();
+      // Reload lot list after creation with the dynamic collectorId
+      await loadMyLots(userId);
 
-      _setLoading(false);
       return createdLot;
     } on ApiException catch (e) {
       _setError(e.message);
-      _setLoading(false);
       return null;
     } catch (e) {
       _setError('Failed to create scrap lot: ${e.toString()}');
-      _setLoading(false);
       return null;
+    } finally {
+      _setLoading(false);
     }
   }
 

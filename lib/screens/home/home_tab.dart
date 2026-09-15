@@ -36,8 +36,9 @@ class _HomeTabState extends State<HomeTab> {
 
   Future<void> _loadData() async {
     final lotProvider = context.read<LotProvider>();
+    final userId = context.read<AuthProvider>().currentUser?.id;
     await Future.wait([
-      lotProvider.loadMyLots(),
+      lotProvider.loadMyLots(userId),
       lotProvider.loadMaterialPrices(),
     ]);
   }

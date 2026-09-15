@@ -212,6 +212,7 @@ class ApiService {
 
       final streamedResponse = await request.send().timeout(_timeoutDuration);
       final response = await http.Response.fromStream(streamedResponse);
+      print('API MULTIPART RESPONSE: ${response.statusCode} ${response.body}');
       return _processResponse(response, endpoint: endpoint);
     } on SocketException catch (e) {
       print('API SOCKET EXCEPTION: $e');
